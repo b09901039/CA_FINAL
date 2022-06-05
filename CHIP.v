@@ -12,6 +12,16 @@
     6/5 (14:10)
     WIL modified:
         part of combinational 
+
+    6/5 (15:15)
+    Kayn modified:
+        imme generator
+
+
+    6/5 (17:00)
+    WIL modified:
+        PC control, input data, minor bugs
+
         
     
 */
@@ -41,8 +51,8 @@ module CHIP(clk,
     // Do not modify this part!!!            //
     // Exception: You may change wire to reg //
     reg    [31:0] PC          ;              //
-    wire   [31:0] PC_nxt      ;              // 
-    reg               RegWrite;              // WIL : Already existed a regWrite
+    reg    [31:0] PC_nxt      ;              // 
+    reg               RegWrite;              //
     wire   [ 4:0] rs1, rs2, rd;              //
     wire   [31:0] rs1_data    ;              //
     wire   [31:0] rs2_data    ;              //
@@ -50,12 +60,7 @@ module CHIP(clk,
     //---------------------------------------//
 
 
-    // Todo: other wire/reg 
-
-    // Not solved yet
-    assign valid = (ALUOp != 0); 
-    assign mem_addr_I = PC;
-
+    // Todo: other wire/reg  
 
     wire   [6:0]   opcode;
     wire   [14:12] funct3;
@@ -65,16 +70,20 @@ module CHIP(clk,
     wire           ALU_zero;
     reg            Jal;
     reg            Jalr;
-    reg            Branch;
-    wire   [31:0]  PC_Branch;   
+    reg            Branch;  
     reg            MemRead;
     reg            MemToReg;
     reg    [2:0]   ALUOp;
     reg            MemWrite;    
     reg            ALUSrc_A;     // For auipc, in_A = pc
     reg            ALUSrc_B;     // select in_B between imme. and rs2
-    reg    [31:0]  in_B_data; 
+    reg            in_A_data;
+    reg            in_B_data;
+     
     wire   [31:0]  ALU_result;
+
+    // immediate
+    reg    [31:0]  ImmeGen_out;
     
 
     //Destruct Instruction
@@ -87,16 +96,15 @@ module CHIP(clk,
     
 
     ALU BasicALU(        
-        .clk(clk), 
-        .rst_n(rst_n), 
-        .valid(valid), 
-        .ready(ALU_ready), 
-        .mode(ALU_mode), 
-        .in_A(ALUSrc_PC? PC: rs1_data), 
-        .in_B(in_B_data),  //upper immediate
-        .out(ALU_result),
-
-        .ALU_zero(ALU_zero)   //Unsolved : Connect it to something!
+        .clk   (clk), 
+        .rst_n (rst_n), 
+        .valid (valid), 
+        .ready (ALU_ready), 
+        .mode  (ALU_mode), 
+        .in_A  (in_A_data), 
+        .in_B  (in_B_data),  
+        .out   (ALU_result),
+        .ALU_zero(ALU_zero) 
     );
 
     //---------------------------------------//
@@ -115,12 +123,35 @@ module CHIP(clk,
     //---------------------------------------//
 
     // Todo: any combinational/sequential circuit
-    assign mem_wen_D = MemWrite| !MemRead;    
-    assign mem_addr_D = ALU_result;
+    assign mem_addr_I  = PC;
+    assign valid       = (ALU_mode != 3'b0);  
+    assign mem_wen_D   = MemWrite;    
+    assign mem_addr_D  = ALU_result;
     assign mem_wdata_D = rs2_data;
-    assign rd_data = (MemToReg? mem_rdata_D: ALU_result); 
-    assign PC_Branch = PC + {31'b0, mem_rdata_I[31:0], 1'b0};
-    assign PC_nxt  = (Branch&ALU_zero ? PC_Branch: PC + 32'h00000004);
+    assign rd_data     = (MemToReg? mem_rdata_D: ALU_result); 
+     
+    // immediate generator
+    always @(*) begin
+        case(opcode)
+            // I-type, lw
+            7'b0010011, 7'b1100111, 7'b0000011 : ImmeGen_out = mem_rdata_I[31:20];
+            // U-type
+            7'b0010111 : ImmeGen_out = {mem_rdata_I[31:12], 12'b0};
+            // J-type
+            7'b1101111 : ImmeGen_out = {mem_rdata_I[31], mem_rdata_I[19:12], mem_rdata_I[20], mem_rdata_I[30:21], 1'b0};
+            // B-type
+            7'b1100011 : ImmeGen_out = {mem_rdata_I[31], mem_rdata_I[7], mem_rdata_I[30:25], mem_rdata_I[11:8], 1'b0};
+            // S-type
+            7'b0100011 : ImmeGen_out = {mem_rdata_I[31], mem_rdata_I[30:25], mem_rdata_I[11:8], mem_rdata_I[7]};
+            default : ImmeGen_out = mem_rdata_I[31:20];
+        endcase
+    end
+
+    // WIL PC control
+    always @(*) begin 
+        if (Branch&&ALU_zero||Jal||Jalr) PC_nxt = PC + ImmeGen_out; 
+        else PC_nxt = PC + 32'h00000004;
+    end
 
     // control signal
         /* need to supply: 
@@ -129,21 +160,21 @@ module CHIP(clk,
             addi (0010011), slti(0010011), add (0110011), sub(0110011)
             xor  (0110011), mul (0110011)
         */
-    always @(*) begin
-     
-        ALUOp = opcode[4:3];
+    always @(*) begin     
+        
         Jal = 0;
         Jalr = 0;
         Branch = 0;
+
         MemRead = 0;
         MemToReg = 0;
         MemWrite = 0;
-        ALUSrc_PC = 0;
-        ALUSrc_imm_I = 0;
-        ALUSrc_imm_U = 0;
-        ALUSrc_imm_B = 0;
-        ALU_mode = 3'b0;
         RegWrite = 0;
+
+        ALUSrc_A = 0;
+        ALUSrc_B = 0;
+        ALU_mode = 3'b0;
+        
         case(opcode)
             // R-type: add, sub, xor, mul
             7'b0110011 : begin
@@ -156,62 +187,61 @@ module CHIP(clk,
             end
             // I-type: addi, slti
             7'b0010011 : begin
-                ALUSrc_imm_I = 1;
-                RegWrite     = 1;
-                if(funct3 == 3'b0)ALU_mode = 3'd1;
+                RegWrite  = 1;
+                ALUSrc_B  = 1;
+                if(funct3 == 3'b0)   ALU_mode = 3'd1;
+                if(funct3 == 3'b010) ALU_mode = 3'd2;
             end
             // auipc
             7'b0010111 : begin
-                ALUSrc_PC    = 1;
-                ALUSrc_imm_U = 1;
-                RegWrite     = 1;
+                ALUSrc_A = 1;
+                ALUSrc_B = 1;   
+                ALU_mode = 3'd1;             
+                RegWrite = 1;
             end
 
             // jal
             7'b1101111 : begin
-                Jal = 1;
+                Jal = 1; 
                 RegWrite = 1;
             end
 
             // jalr
             7'b1100111 : begin
-                Jalr = 1;
+                Jalr     = 1; 
                 RegWrite = 1;
             end
 
             // beq
-            7'b1100011 : Branch = 1;
-
+            7'b1100011 : begin 
+                Branch = 1;
+                ALU_mode = 3'd2;
+            end
             // lw
             7'b0000011 : begin
-                MemRead = 1;
+                MemRead  = 1;
                 MemToReg = 1;
                 RegWrite = 1;
-                ALUSrc_imm_I = 1;
+                ALUSrc_B = 1; 
+                ALU_mode = 3'd1;
             end
 
             // sw
             7'b0100011 : begin
                 MemWrite = 1;
-                ALUSrc_imm_B = 1;
+                ALUSrc_B = 1; 
+                ALU_mode = 3'd1;
             end
-        endcase
-    end
-    
+        endcase 
 
-    // WIL: determine data flows
-    always @(*) begin
-        if(ALUSrc_imm_I)in_B_data[11:0] = mem_rdata_I[31:20];
-        if(ALUSrc_imm_U)in_B_data[19:0] = mem_rdata_I[31:12];
-        if(ALUSrc_imm_B)begin
-            in_B_data[   11] = mem_rdata_I[   12];
-            in_B_data[10: 5] = mem_rdata_I[10: 5];
-            in_B_data[ 4: 1] = mem_rdata_I[ 4: 1];
-            in_B_data[    0] = mem_rdata_I[   11]; 
-        end
+        //Wil determine the input datas
+        if (ALUSrc_A)in_A_data = PC;
+        else in_A_data = rs1_data;
+
+        if (ALUSrc_B)in_B_data = ImmeGen_out;
         else in_B_data = rs2_data;
- 
-    end
+    end  
+     
      
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -450,4 +480,3 @@ module ALU(
     end
 endmodule
 
- 
