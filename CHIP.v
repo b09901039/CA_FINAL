@@ -63,12 +63,11 @@ module CHIP(clk,
     wire   [31:0] rd_data     ;              //
     //---------------------------------------//
 
-
     // Todo: other wire/reg  
 
     wire   [6:0]   opcode;
-    wire   [14:12] funct3;
-    wire   [31:25] funct7;
+    wire   [2:0]   funct3;
+    wire   [6:0]   funct7;
     reg    [2:0]   ALU_mode;
     wire           ALU_ready;
     wire           ALU_zero;
@@ -77,8 +76,8 @@ module CHIP(clk,
     reg            Branch;  
     reg            MemRead;
     reg            MemToReg;
-    reg    [2:0]   ALUOp;
-    reg            MemWrite;  
+    reg            MemWrite;
+    reg            is_jal;
 
     reg            valid;
     reg            ALUSrc_A;     // For auipc, in_A = pc
@@ -132,28 +131,40 @@ module CHIP(clk,
     assign mem_wen_D   = MemWrite;    
     assign mem_addr_D  = ALU_result;
     assign mem_wdata_D = rs2_data;
-    assign rd_data     = ((Jal|Jalr)? PC+4: MemToReg? mem_rdata_D: ALU_result); 
+    assign rd_data     = ((Jal|Jalr)? PC+32'h00000004: MemToReg? mem_rdata_D: ALU_result); 
      
     // immediate generator
     always @(*) begin
         case(opcode)
             // I-type, lw
-            7'b0010011, 7'b1100111, 7'b0000011 : ImmeGen_out = mem_rdata_I[31:20];
+            7'b0010011, 7'b1100111, 7'b0000011 : begin
+                ImmeGen_out[11:0] = mem_rdata_I[31:20];
+                ImmeGen_out[31:12] = {20{ImmeGen_out[11]}};
+            end
             // U-type
             7'b0010111 : ImmeGen_out = {mem_rdata_I[31:12], 12'b0};
             // J-type
-            7'b1101111 : ImmeGen_out = {mem_rdata_I[31], mem_rdata_I[19:12], mem_rdata_I[20], mem_rdata_I[30:21], 1'b0};
+            7'b1101111 : begin
+                ImmeGen_out[20:0] = {mem_rdata_I[31], mem_rdata_I[19:12], mem_rdata_I[20], mem_rdata_I[30:21], 1'b0};
+                ImmeGen_out[31:21] = {11{ImmeGen_out[20]}};
+            end
             // B-type
-            7'b1100011 : ImmeGen_out = {mem_rdata_I[31], mem_rdata_I[7], mem_rdata_I[30:25], mem_rdata_I[11:8], 1'b0};
+            7'b1100011 : begin
+                ImmeGen_out[12:0] = {mem_rdata_I[31], mem_rdata_I[7], mem_rdata_I[30:25], mem_rdata_I[11:8], 1'b0};
+                ImmeGen_out[31:13] = {19{ImmeGen_out[12]}};
+            end
             // S-type
-            7'b0100011 : ImmeGen_out = {mem_rdata_I[31], mem_rdata_I[30:25], mem_rdata_I[11:8], mem_rdata_I[7]};
-            default : ImmeGen_out = mem_rdata_I[31:20];
+            7'b0100011 : begin
+                ImmeGen_out[11:0] = {mem_rdata_I[31:25], mem_rdata_I[11:7]};
+                ImmeGen_out[31:12] = {20{ImmeGen_out[11]}};
+            end
+            default : ImmeGen_out = 0;
         endcase
     end
 
     // PC control
-    always @(*) begin 
-        if (!ALU_ready) PC_nxt = PC;
+    always @(*) begin
+        if (!ALU_ready & !is_jal) PC_nxt = PC;
         else if (Jalr) PC_nxt = ALU_result;
         else if ((Branch & ALU_zero) | Jal) PC_nxt = PC + ImmeGen_out; 
         else PC_nxt = PC + 32'h00000004;
@@ -171,6 +182,7 @@ module CHIP(clk,
         Jal = 0;
         Jalr = 0;
         Branch = 0;
+        is_jal = 0;
 
         MemRead = 0;
         MemToReg = 0;
@@ -198,7 +210,7 @@ module CHIP(clk,
                 RegWrite  = 1;
                 ALUSrc_B  = 1;
                 if(funct3 == 3'b0)   ALU_mode = 3'd0;
-                if(funct3 == 3'b010) ALU_mode = 3'd1;
+                //if(funct3 == 3'b010) ALU_mode = 3'd1;
                 valid = 1;
             end
             // auipc
@@ -214,6 +226,7 @@ module CHIP(clk,
             7'b1101111 : begin
                 Jal = 1; 
                 RegWrite = 1;
+                is_jal = 1;
             end
 
             // jalr
@@ -267,8 +280,7 @@ module CHIP(clk,
         else begin
             PC <= PC_nxt;
         end
-    end
-
+    end 
 
 endmodule
 
@@ -369,7 +381,7 @@ module ALU(
             IDLE: begin
                 if (valid) begin
                     if (mode[2])
-                        shreg_nxt = XOR;
+                        state_nxt = XOR;
                     else
                         if (mode[1]) 
                             if (mode[0]) state_nxt = DIV;

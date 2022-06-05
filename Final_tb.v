@@ -3,7 +3,7 @@
 `timescale 1 ns/10 ps
 
 `define CYCLE 10       // Do not change this value!!!
-`define END_CYCLE 100 // You can modify your maximum cycles
+`define END_CYCLE 1000 // You can modify your maximum cycles
 
 `include "CHIP.v"
 `include "memory.v"
@@ -11,11 +11,11 @@
 `define SIZE_DATA 36  // You can change the size
 `define SIZE_STACK 36 // You can change the size
 
-`ifdef leaf `endif
+`ifdef leaf
     `define MEM_TEXT "./leaf/leaf_text.txt"
     `define MEM_DATA "./leaf/leaf_data.txt"
     `define MEM_DATA_ANS "./leaf/leaf_data_ans.txt"
-
+`endif
 
 `ifdef perm
     `define MEM_TEXT "./perm/perm_text.txt"
@@ -110,7 +110,7 @@ module Final_tb;
         $readmemh (`MEM_TEXT, mem_text.mem); // initialize data in mem_I
 
         for (i=0; i<`SIZE_TEXT; i=i+1) begin
-            if ((mem_text.mem[i] == 32'bx) && !eof_find) begin
+            if ((mem_text.mem[i] === 32'bx) && !eof_find) begin
                 eof = mem_text_offset + i*4;
                 eof_find = 1;
             end
@@ -150,7 +150,7 @@ module Final_tb;
         if (mem_addr_I == eof) begin
             error_num = 0;
             for (i=0; i<`SIZE_DATA; i=i+1) begin
-                if (mem_data.mem[i] != mem_data_ans[i]) begin
+                if (mem_data.mem[i] !== mem_data_ans[i]) begin
                     if (error_num == 0)
                         $display("Error!");
                     error_num = error_num + 1;
