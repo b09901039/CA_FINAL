@@ -22,7 +22,11 @@
     WIL modified:
         PC control, input data, minor bugs
 
-        
+
+    6/5 (21:00)
+    Kayn modified:
+        control bugs(ALU mode not correct), rd_data fix,
+
     
 */
 
@@ -74,12 +78,13 @@ module CHIP(clk,
     reg            MemRead;
     reg            MemToReg;
     reg    [2:0]   ALUOp;
-    reg            MemWrite;    
+    reg            MemWrite;  
+
+    reg            valid;
     reg            ALUSrc_A;     // For auipc, in_A = pc
     reg            ALUSrc_B;     // select in_B between imme. and rs2
-    reg            in_A_data;
-    reg            in_B_data;
-     
+    reg    [31:0]  in_A_data;
+    reg    [31:0]  in_B_data;     
     wire   [31:0]  ALU_result;
 
     // immediate
@@ -123,12 +128,11 @@ module CHIP(clk,
     //---------------------------------------//
 
     // Todo: any combinational/sequential circuit
-    assign mem_addr_I  = PC;
-    assign valid       = (ALU_mode != 3'b0);  
+    assign mem_addr_I  = PC;  
     assign mem_wen_D   = MemWrite;    
     assign mem_addr_D  = ALU_result;
     assign mem_wdata_D = rs2_data;
-    assign rd_data     = (MemToReg? mem_rdata_D: ALU_result); 
+    assign rd_data     = ((Jal|Jalr)? PC+4: MemToReg? mem_rdata_D: ALU_result); 
      
     // immediate generator
     always @(*) begin
@@ -147,9 +151,11 @@ module CHIP(clk,
         endcase
     end
 
-    // WIL PC control
+    // PC control
     always @(*) begin 
-        if (Branch&&ALU_zero||Jal||Jalr) PC_nxt = PC + ImmeGen_out; 
+        if (!ready) PC_nxt = PC;
+        else if (Jalr) PC_nxt = ALU_result;
+        else if ((Branch & ALU_zero) | Jal) PC_nxt = PC + ImmeGen_out; 
         else PC_nxt = PC + 32'h00000004;
     end
 
@@ -174,23 +180,26 @@ module CHIP(clk,
         ALUSrc_A = 0;
         ALUSrc_B = 0;
         ALU_mode = 3'b0;
+        valid = 0;
         
         case(opcode)
             // R-type: add, sub, xor, mul
             7'b0110011 : begin
                 RegWrite = 1;
-                if(funct3 == 3'b000 && funct7 == 7'b0000000)ALU_mode = 3'd1;
-                if(funct3 == 3'b000 && funct7 == 7'b0100000)ALU_mode = 3'd2;
-                if(funct3 == 3'b000 && funct7 == 7'b0100001)ALU_mode = 3'd3;
-                if(funct3 == 3'b100 && funct7 == 7'b0100001)ALU_mode = 3'd4;
-                if(funct3 == 3'b100 && funct7 == 7'b0000000)ALU_mode = 3'd5;
+                if(funct3 == 3'b000 && funct7 == 7'b0000000)ALU_mode = 3'd0;
+                if(funct3 == 3'b000 && funct7 == 7'b0100000)ALU_mode = 3'd1;
+                if(funct3 == 3'b000 && funct7 == 7'b0000001)ALU_mode = 3'd2;
+                if(funct3 == 3'b100 && funct7 == 7'b0000001)ALU_mode = 3'd3;
+                if(funct3 == 3'b100 && funct7 == 7'b0000000)ALU_mode = 3'd4;
+                valid = 1;
             end
             // I-type: addi, slti
             7'b0010011 : begin
                 RegWrite  = 1;
                 ALUSrc_B  = 1;
-                if(funct3 == 3'b0)   ALU_mode = 3'd1;
-                if(funct3 == 3'b010) ALU_mode = 3'd2;
+                if(funct3 == 3'b0)   ALU_mode = 3'd0;
+                if(funct3 == 3'b010) ALU_mode = 3'd1;
+                valid = 1;
             end
             // auipc
             7'b0010111 : begin
@@ -198,6 +207,7 @@ module CHIP(clk,
                 ALUSrc_B = 1;   
                 ALU_mode = 3'd1;             
                 RegWrite = 1;
+                valid = 1
             end
 
             // jal
@@ -210,38 +220,45 @@ module CHIP(clk,
             7'b1100111 : begin
                 Jalr     = 1; 
                 RegWrite = 1;
+                ALU_mode = 3'd0;
+                ALUSrc_B = 1;
+                valid    = 1;
             end
 
             // beq
             7'b1100011 : begin 
                 Branch = 1;
-                ALU_mode = 3'd2;
+                ALU_mode = 3'd1;
+                valid = 1;
             end
             // lw
             7'b0000011 : begin
                 MemRead  = 1;
                 MemToReg = 1;
                 RegWrite = 1;
-                ALUSrc_B = 1; 
-                ALU_mode = 3'd1;
+                ALU_mode = 3'd0;
+                ALUSrc_B = 1;
+                valid = 1;
             end
 
             // sw
             7'b0100011 : begin
                 MemWrite = 1;
-                ALUSrc_B = 1; 
-                ALU_mode = 3'd1;
+                ALUSrc_B = 1;
+                ALU_mode = 3'd0;
+                valid = 1;
             end
         endcase 
+    end
 
-        //Wil determine the input datas
-        if (ALUSrc_A)in_A_data = PC;
+    //determine ALU input datas
+    always @(*) begin    
+        if (ALUSrc_A) in_A_data = PC;
         else in_A_data = rs1_data;
 
-        if (ALUSrc_B)in_B_data = ImmeGen_out;
+        if (ALUSrc_B) in_B_data = ImmeGen_out;
         else in_B_data = rs2_data;
-    end  
-     
+    end
      
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -316,7 +333,7 @@ module ALU(
     // Definition of ports
     input         clk, rst_n;
     input         valid;
-    input  [2:0]  mode; // mode: 0: add, 1: sub, 2: mul, 3: div, 4: 
+    input  [2:0]  mode; // mode: 0: add, 1: sub, 2: mul, 3: div, 4: xor
     output        ready;
     input  [31:0] in_A, in_B;
     output [31:0] out;
