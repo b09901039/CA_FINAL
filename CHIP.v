@@ -63,6 +63,7 @@ module CHIP(clk,
     wire   [31:0] rd_data     ;              //
     //---------------------------------------//
 
+
     // Todo: other wire/reg  
 
     wire   [6:0]   opcode;
@@ -128,7 +129,7 @@ module CHIP(clk,
 
     // Todo: any combinational/sequential circuit
     assign mem_addr_I  = PC;  
-    assign mem_wen_D   = MemWrite;    
+    assign mem_wen_D   = ((ALU_ready)? MemWrite: 0);    
     assign mem_addr_D  = ALU_result;
     assign mem_wdata_D = rs2_data;
     assign rd_data     = ((Jal|Jalr)? PC+32'h00000004: MemToReg? mem_rdata_D: ALU_result); 
@@ -210,7 +211,7 @@ module CHIP(clk,
                 RegWrite  = 1;
                 ALUSrc_B  = 1;
                 if(funct3 == 3'b0)   ALU_mode = 3'd0;
-                //if(funct3 == 3'b010) ALU_mode = 3'd1;
+                if(funct3 == 3'b010) ALU_mode = 3'd1;
                 valid = 1;
             end
             // auipc
@@ -433,6 +434,7 @@ module ALU(
 
     // Todo 3: ALU output
     always @(*) begin
+        alu_out[32] = 1'd0;
         case(state)
             ADD : alu_out[31:0] = shreg[31:0] + alu_in;
             SUB : alu_out[31:0] = shreg[31:0] - alu_in;
@@ -445,7 +447,7 @@ module ALU(
                 else                        alu_out = shreg[62:31];
             end
             XOR : alu_out[31:0] = shreg[31:0] ^ alu_in;
-            default : alu_out = 32'd0;
+            default : alu_out = 33'd0;
         endcase
     end
     
