@@ -49,6 +49,7 @@ module CHIP(clk,
 
     // Not solved yet
     assign valid = (rs1_data|rs2_data|mem_rdata_I); 
+    assign mem_addr_I = PC;
 
 
     wire   [6:0]   opcode;
@@ -83,7 +84,9 @@ module CHIP(clk,
         .mode(ALU_mode), 
         .in_A(rs1_data), 
         .in_B(rs2_data), 
-        .out(rd_data)
+        .out(rd_data),
+
+        .ALU_zero()   //Unsolved : Connect it to something!
     );
 
     //---------------------------------------//
@@ -176,14 +179,10 @@ module CHIP(clk,
     end
         //=================== end
 
-    // PC control
-        // ================== WIL did it 
+    // PC control        
     always @(*) begin 
-        PC_nxt = PC + 32'h00000004;
-    end
-        // ================== end
-
-    
+        if (rst_n) PC_nxt = PC + 32'h00000004;
+    end  
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -191,6 +190,7 @@ module CHIP(clk,
         end
         else begin
             PC <= PC_nxt;
+
         end
     end
 
@@ -241,6 +241,8 @@ module reg_file(clk, rst_n, wen, a1, a2, aw, d, q1, q2);
     end
 endmodule
 
+
+// =================== ALU =================== //
 module ALU(
     clk,
     rst_n,
@@ -283,12 +285,12 @@ module ALU(
     // Todo 5: Wire assignments
     assign ready = (state == OUT);
     assign out = shreg[31:0];
-    assign ALU_zero = (shreg[31:0] == 0)
+    assign ALU_zero = (shreg[31:0] == 0);
 
     // Combinational always block
     // Todo 1: Next-state logic of state machine
     always @(*) begin
-        case(state)
+        case(state) 
             IDLE: begin
                 if (valid) begin
                     if (mode[2])
