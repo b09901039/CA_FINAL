@@ -153,7 +153,7 @@ module CHIP(clk,
 
     // PC control
     always @(*) begin 
-        if (!ready) PC_nxt = PC;
+        if (!ALU_ready) PC_nxt = PC;
         else if (Jalr) PC_nxt = ALU_result;
         else if ((Branch & ALU_zero) | Jal) PC_nxt = PC + ImmeGen_out; 
         else PC_nxt = PC + 32'h00000004;
@@ -205,9 +205,9 @@ module CHIP(clk,
             7'b0010111 : begin
                 ALUSrc_A = 1;
                 ALUSrc_B = 1;   
-                ALU_mode = 3'd1;             
+                ALU_mode = 3'd0;             
                 RegWrite = 1;
-                valid = 1
+                valid    = 1;
             end
 
             // jal
