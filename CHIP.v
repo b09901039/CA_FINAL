@@ -7,6 +7,11 @@
         ALU add in this file.
         add some reg & wire for control.
         complete control signal.
+
+
+    6/5 (14:10)
+    WIL modified:
+        part of combinational 
         
     
 */
@@ -48,7 +53,7 @@ module CHIP(clk,
     // Todo: other wire/reg 
 
     // Not solved yet
-    assign valid = (ALUOp != 0) 
+    assign valid = (ALUOp != 0); 
     assign mem_addr_I = PC;
 
 
@@ -61,16 +66,13 @@ module CHIP(clk,
     reg            Jal;
     reg            Jalr;
     reg            Branch;
-    wire   [31:0]  PC_Branch; //WIL added
+    wire   [31:0]  PC_Branch;   
     reg            MemRead;
     reg            MemToReg;
     reg    [2:0]   ALUOp;
     reg            MemWrite;    
-    //WIL added
-    reg            ALUSrc_PC;     // For auipc, in_A = pc
-    reg            ALUSrc_imm_I; // select in_B between imme_Itype. and rs2
-    reg            ALUSrc_imm_U; // select in_B between imme_Utype. and rs2
-    reg            ALUSrc_imm_B;
+    reg            ALUSrc_A;     // For auipc, in_A = pc
+    reg            ALUSrc_B;     // select in_B between imme. and rs2
     reg    [31:0]  in_B_data; 
     wire   [31:0]  ALU_result;
     
@@ -127,8 +129,6 @@ module CHIP(clk,
             addi (0010011), slti(0010011), add (0110011), sub(0110011)
             xor  (0110011), mul (0110011)
         */
-
-        // ================== Kayn did it
     always @(*) begin
      
         ALUOp = opcode[4:3];
@@ -197,7 +197,7 @@ module CHIP(clk,
             end
         endcase
     end
-        //=================== end
+    
 
     // WIL: determine data flows
     always @(*) begin
