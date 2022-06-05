@@ -36,7 +36,7 @@ module CHIP(clk,
     // Do not modify this part!!!            //
     // Exception: You may change wire to reg //
     reg    [31:0] PC          ;              //
-    reg    [31:0] PC_nxt      ;              // WIL : I changed wire to reg for PC_nxt
+    wire   [31:0] PC_nxt      ;              // 
     reg               RegWrite;              // WIL : Already existed a regWrite
     wire   [ 4:0] rs1, rs2, rd;              //
     wire   [31:0] rs1_data    ;              //
@@ -48,7 +48,7 @@ module CHIP(clk,
     // Todo: other wire/reg 
 
     // Not solved yet
-    assign valid = (rs1_data|rs2_data|mem_rdata_I); 
+    assign valid = (ALUOp != 0) 
     assign mem_addr_I = PC;
 
 
@@ -57,18 +57,22 @@ module CHIP(clk,
     wire   [31:25] funct7;
     reg    [2:0]   ALU_mode;
     wire           ALU_ready;
+    wire           ALU_zero;
     reg            Jal;
     reg            Jalr;
     reg            Branch;
+    wire   [31:0]  PC_Branch; //WIL added
     reg            MemRead;
     reg            MemToReg;
     reg    [2:0]   ALUOp;
     reg            MemWrite;    
+    //WIL added
     reg            ALUSrc_PC;     // For auipc, in_A = pc
     reg            ALUSrc_imm_I; // select in_B between imme_Itype. and rs2
     reg            ALUSrc_imm_U; // select in_B between imme_Utype. and rs2
     reg            ALUSrc_imm_B;
     reg    [31:0]  in_B_data; 
+    wire   [31:0]  ALU_result;
     
 
     //Destruct Instruction
@@ -77,10 +81,8 @@ module CHIP(clk,
     assign funct3 = mem_rdata_I[14:12];
     assign rs1    = mem_rdata_I[19:15];
     assign rs2    = mem_rdata_I[24:20];
-    assign funct7 = mem_rdata_I[31:25];
-
-     
-    //WIL determined the inputs
+    assign funct7 = mem_rdata_I[31:25];      
+    
 
     ALU BasicALU(        
         .clk(clk), 
@@ -90,9 +92,9 @@ module CHIP(clk,
         .mode(ALU_mode), 
         .in_A(ALUSrc_PC? PC: rs1_data), 
         .in_B(in_B_data),  //upper immediate
-        .out(rd_data),
+        .out(ALU_result),
 
-        .ALU_zero()   //Unsolved : Connect it to something!
+        .ALU_zero(ALU_zero)   //Unsolved : Connect it to something!
     );
 
     //---------------------------------------//
@@ -111,8 +113,13 @@ module CHIP(clk,
     //---------------------------------------//
 
     // Todo: any combinational/sequential circuit
+    assign mem_wen_D = MemWrite| !MemRead;    
+    assign mem_addr_D = ALU_result;
+    assign mem_wdata_D = rs2_data;
+    assign rd_data = (MemToReg? mem_rdata_D: ALU_result); 
+    assign PC_Branch = PC + {31'b0, mem_rdata_I[31:0], 1'b0};
+    assign PC_nxt  = (Branch&ALU_zero ? PC_Branch: PC + 32'h00000004);
 
-       
     // control signal
         /* need to supply: 
             auipc(0010111), jal (1101111), jalr(1100111)
@@ -190,8 +197,9 @@ module CHIP(clk,
             end
         endcase
     end
+        //=================== end
 
-    // WIL: determine in_B data into ALU 
+    // WIL: determine data flows
     always @(*) begin
         if(ALUSrc_imm_I)in_B_data[11:0] = mem_rdata_I[31:20];
         if(ALUSrc_imm_U)in_B_data[19:0] = mem_rdata_I[31:12];
@@ -202,14 +210,9 @@ module CHIP(clk,
             in_B_data[    0] = mem_rdata_I[   11]; 
         end
         else in_B_data = rs2_data;
+ 
     end
-        //=================== end
-
-    // PC control        
-    always @(*) begin 
-        if (rst_n) PC_nxt = PC + 32'h00000004;
-    end  
-
+     
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
