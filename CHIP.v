@@ -74,7 +74,8 @@ module CHIP(clk,
     wire           ALU_zero;
     reg            Jal;
     reg            Jalr;
-    reg            Branch;  
+    reg            BEQ;
+    reg            BGE;
     reg            MemRead;
     reg            MemToReg;
     reg            MemWrite;
@@ -167,14 +168,14 @@ module CHIP(clk,
     always @(*) begin
         if (!ALU_ready & !is_jal) PC_nxt = PC;
         else if (Jalr) PC_nxt = ALU_result;
-        else if ((Branch & ALU_zero) | Jal) PC_nxt = PC + ImmeGen_out; 
+        else if ((BEQ & ALU_zero) | (BGE & (ALU_zero | !ALU_result[31])) | Jal) PC_nxt = PC + ImmeGen_out; 
         else PC_nxt = PC + 32'h00000004;
     end
 
     // control signal
         /* need to supply: 
             auipc(0010111), jal (1101111), jalr(1100111)
-            beq  (1100011), lw  (0000011), sw  (0100011)
+            beq  (1100011), bge (1100011), lw  (0000011), sw  (0100011)
             addi (0010011), slti(0010011), add (0110011), sub(0110011)
             xor  (0110011), mul (0110011)
         */
@@ -182,7 +183,8 @@ module CHIP(clk,
         
         Jal = 0;
         Jalr = 0;
-        Branch = 0;
+        BEQ = 0;
+        BGE = 0;
         is_jal = 0;
 
         MemRead = 0;
@@ -211,7 +213,7 @@ module CHIP(clk,
                 RegWrite  = 1;
                 ALUSrc_B  = 1;
                 if(funct3 == 3'b0)   ALU_mode = 3'd0;
-                if(funct3 == 3'b010) ALU_mode = 3'd1;
+                if(funct3 == 3'b010) ALU_mode = 3'd5;
                 valid = 1;
             end
             // auipc
@@ -239,9 +241,10 @@ module CHIP(clk,
                 valid    = 1;
             end
 
-            // beq
+            // beq, bge
             7'b1100011 : begin 
-                Branch = 1;
+                if (funct3 == 3'b000) BEQ = 1;
+                if (funct3 == 3'b101) BGE = 1;
                 ALU_mode = 3'd1;
                 valid = 1;
             end
@@ -346,7 +349,7 @@ module ALU(
     // Definition of ports
     input         clk, rst_n;
     input         valid;
-    input  [2:0]  mode; // mode: 0: add, 1: sub, 2: mul, 3: div, 4: xor
+    input  [2:0]  mode; // mode: 0: add, 1: sub, 2: mul, 3: div, 4: xor, 5: slti
     output        ready;
     input  [31:0] in_A, in_B;
     output [31:0] out;
@@ -359,7 +362,8 @@ module ALU(
     parameter MUL  = 3'd3;
     parameter DIV  = 3'd4;
     parameter XOR  = 3'd5;
-    parameter OUT  = 3'd6;
+    parameter SLTI = 3'd6;
+    parameter OUT  = 3'd7;
 
     // Todo: Wire and reg if needed
     reg  [2:0] state, state_nxt;
@@ -382,7 +386,8 @@ module ALU(
             IDLE: begin
                 if (valid) begin
                     if (mode[2])
-                        state_nxt = XOR;
+                        if (mode[0]) state_nxt = SLTI;
+                        else         state_nxt = XOR;
                     else
                         if (mode[1]) 
                             if (mode[0]) state_nxt = DIV;
@@ -403,7 +408,8 @@ module ALU(
                 if (counter == 5'b11111) state_nxt = OUT;
                 else                     state_nxt = DIV;
             end
-            XOR :     state_nxt = OUT;            
+            XOR :     state_nxt = OUT; 
+            SLTI :    state_nxt = OUT;           
             OUT :     state_nxt = IDLE;
             default : state_nxt = state;
         endcase
@@ -447,6 +453,7 @@ module ALU(
                 else                        alu_out = shreg[62:31];
             end
             XOR : alu_out[31:0] = shreg[31:0] ^ alu_in;
+            SLTI : alu_out[31:0] = (shreg[31:0]<alu_in) ? 32'd1: 32'd0;
             default : alu_out = 33'd0;
         endcase
     end
@@ -489,7 +496,10 @@ module ALU(
                 shreg_nxt[31:0]  = alu_out[31:0];
                 shreg_nxt[63:32] = 32'd0;
             end
-
+            SLTI : begin
+                shreg_nxt[31:0]  = alu_out[31:0];
+                shreg_nxt[63:32] = 32'd0;
+            end
             default : shreg_nxt = shreg;
         endcase
     end
